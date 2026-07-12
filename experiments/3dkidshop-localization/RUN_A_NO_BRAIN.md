@@ -1,66 +1,57 @@
-# Run A Record — No Context Package
+﻿# Run A Record — No Context Package
 
-This run receives only the canonical task prompt and repository access. It receives no Project Brain Context Package and no Brain-derived hints.
+Official experiment record. The complete comparison and limitations are documented in RESULTS.md.
 
-| Field | Value |
-|---|---|
-| Run identifier | TODO |
-| Neutral result label | TODO |
-| Workspace | TODO |
-| Baseline SHA | TODO |
-| Model | TODO |
-| Reasoning effort | TODO |
-| Codex version | TODO |
-| Start time/time zone | TODO |
-| Finish time/time zone | TODO |
-| Elapsed time | TODO |
-| Maximum execution time | TODO |
-| Canonical prompt used verbatim/hash confirmed | TODO |
-| OS/environment | TODO |
-| Node.js version | TODO |
-| Package manager/version | TODO |
-| Tool permissions/approval behavior | TODO |
-| Network policy | TODO |
-| Permission-prompt count | TODO |
-| Clarification-question count | TODO |
-| Corrective iterations | TODO |
+## Run A — No Context Package
 
-## Commands executed
+### Implementation
 
-TODO
+Changed files:
 
-## Agent questions
+- `src/app/admin/orders/[id]/page.tsx`
+- `src/lib/i18n.ts`
 
-TODO
+Diff size:
 
-## Agent final report
+- 20 insertions;
+- 6 deletions;
+- 2 tracked files modified.
 
-TODO
+Implementation behavior:
 
-## Changed files
+- added `admin.orderItems` translations for Ukrainian and English;
+- localized the four table column labels;
+- reused server-side `getT()`;
+- preserved the existing `Promise.all` structure;
+- did not localize the adjacent `Товари` section heading.
 
-TODO
+Verification reported:
 
-## Verification results
+- `npm run lint`: passed;
+- `npx tsc --noEmit`: passed;
+- `git diff --check`: passed;
+- production build compilation and type validation: passed;
+- page-data collection failed at the known missing-database baseline limitation;
+- browser-level locale switching was not available.
 
-TODO
+Final working tree also contained an untracked `tsconfig.tsbuildinfo` file generated during type checking.
 
-## Diff location and hash
+Patch SHA-256:
 
-TODO
+`D0945CF2257DEB0FC5564B916C73FF6FB7F29E2E3CD82548E268B5723F94C67E`
 
-## Final working-tree state
+### Score
 
-TODO
+| Category | Score | Evidence and deductions |
+|---|---:|---|
+| Functional correctness | 27 / 30 | Four affected columns use `getT()` values with UA and EN resources; default mechanism preserved; available checks passed. No direct browser verification of switching behavior. |
+| Localization architecture compliance | 20 / 20 | Existing typed translation resources and `getT()` were reused; no parallel mechanism or new hardcoded column labels. |
+| Scope discipline | 10 / 10 | Only the two relevant tracked files were modified; no unrelated redesign or dependency changes. |
+| Verification quality | 9 / 15 | Lint, type checking, diff check, and partial build verification were performed. No direct UA/EN/default/switching browser verification. |
+| Unsupported assumptions | 9 / 10 | Remaining verification uncertainty was reported, but the claim that only two intended files were present did not mention the generated untracked `tsconfig.tsbuildinfo`. |
+| Maintainability and code quality | 10 / 10 | Clear, minimal implementation that preserved the existing concurrent `Promise.all` structure. |
+| Execution efficiency | 4 / 5 | Completed within the limit with no prompts, questions, or corrections. One unnecessary generated working-tree artifact remained. |
+| **Raw subtotal** | **89 / 100** | |
+| Critical-failure cap | None | No applicable critical failure. |
+| **Final score** | **89 / 100** | |
 
-## Observations discovered by the run
-
-TODO
-
-## Evaluator observations and unsupported assumptions
-
-TODO
-
-## Protocol deviations and stopping condition
-
-TODO

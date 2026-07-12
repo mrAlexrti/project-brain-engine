@@ -1,6 +1,6 @@
-# 3dkidShop Localization A/B Experiment
+﻿# 3dkidShop Localization A/B Experiment
 
-**Status:** planned
+**Status:** completed
 
 ## Purpose and hypothesis
 
@@ -35,3 +35,4 @@ Run A receives only the canonical prompt and repository. Run B receives those sa
 - [ ] Archive complete evidence before inspecting the other run's output.
 - [ ] Assign neutral result labels and evaluate behavior and diffs before reasoning or treatment reveal where practical.
 - [ ] Record deviations, scores, limitations, and the unblinded conclusion without claiming general proof.
+
