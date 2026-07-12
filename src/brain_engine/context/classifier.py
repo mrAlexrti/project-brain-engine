@@ -4,10 +4,11 @@ import re
 
 from brain_engine.domain.context import RequestPackage, TaskClassification
 
-# Precedence is architectural change, bug fix, feature, review, then general.
+# Explicit defect repair takes precedence over incidental architecture/design words.
+# Architecture changes otherwise precede features and reviews.
 INTENT_KEYWORDS: tuple[tuple[str, frozenset[str]], ...] = (
+    ("bugfix", frozenset({"fix", "bug", "defect", "error", "failure", "broken", "incorrect"})),
     ("architecture_change", frozenset({"architecture", "architectural", "adr", "rfc", "design", "model", "schema", "contract", "decision"})),
-    ("bugfix", frozenset({"fix", "bug", "error", "failure", "broken", "incorrect"})),
     ("feature", frozenset({"add", "create", "implement", "introduce", "support"})),
     ("review", frozenset({"review", "inspect", "analyze", "check", "assess"})),
 )

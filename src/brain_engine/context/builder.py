@@ -1,5 +1,6 @@
 """Deterministic question-driven Context Package builder."""
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,40 @@ class ContextBuildError(Exception):
 
 class BrainContentError(ContextBuildError):
     """The Brain knowledge base failed canonical validation."""
+
+
+RETRIEVAL_STOP_WORDS = frozenset(
+    {
+        "after", "also", "and", "are", "available", "before", "but", "can", "current",
+        "describe", "do", "existing", "for", "from", "has", "have", "how", "implementing",
+        "in", "inspect", "into", "is", "it", "its", "not", "of", "or", "outside", "perform",
+        "project", "relevant", "report", "repository", "some", "task", "the", "their", "this",
+        "to", "use", "user", "where", "with", "without", "your",
+    }
+)
+MUTATING_INTENTS = frozenset({"architecture_change", "bugfix", "feature"})
+SAFE_CHANGE_TERMS = frozenset({"safety", "safe"})
+STRUCTURED_STOP_WORDS = frozenset(
+    {"change", "changes", "contract", "decision", "knowledge", "playbook", "question", "verification"}
+)
+CONTENT_STOP_WORDS = frozenset(
+    {
+        "behavior", "build", "changed", "changes", "commit", "defect", "files", "fix",
+        "lint", "manual", "preserve", "push", "reasoning", "redesign", "results", "tests",
+        "verification",
+    }
+)
+SUPPORTED_ACTIONS = (
+    "read_repository", "search_code", "inspect_git_history", "prepare_plan", "ask_questions",
+    "modify_code", "run_tests", "commit", "push", "deploy",
+)
+PROHIBITION_ACTIONS: dict[str, tuple[str, ...]] = {
+    "modify_code": ("modify", "edit", "change"),
+    "run_tests": ("test", "tests", "testing"),
+    "commit": ("commit", "commits", "committing"),
+    "push": ("push", "pushes", "pushing"),
+    "deploy": ("deploy", "deployment", "deploying"),
+}
 
 
 def _label(item: BrainItem, field: str) -> str:
@@ -88,6 +123,24 @@ def _matched(
         f"matched_keyword:{word}"
         for word in sorted(tokens & set(_strings(item, "keywords")))
     )
+    query_terms = tokens - RETRIEVAL_STOP_WORDS
+    structured_fields = {
+        "id": task_tokens(str(item.id).replace(".", " ").replace("-", "_")),
+        "title": task_tokens(str(item.metadata.get("title", ""))),
+        "tag": frozenset().union(*(task_tokens(value) for value in _strings(item, "tags"))),
+        "source": frozenset().union(*(task_tokens(value) for value in _strings(item, "sources"))),
+    }
+    for field, values in structured_fields.items():
+        values = values - STRUCTURED_STOP_WORDS
+        reasons.extend(
+            f"matched_{field}:{word}" for word in sorted(query_terms & values)
+        )
+    content_matches = sorted((query_terms - CONTENT_STOP_WORDS) & task_tokens(item.content))
+    if len(content_matches) >= 2:
+        reasons.extend(f"matched_content:{word}" for word in content_matches)
+    item_terms = structured_fields["id"] | structured_fields["tag"]
+    if intent in MUTATING_INTENTS and item.type == "playbook" and item_terms & SAFE_CHANGE_TERMS:
+        reasons.append(f"matched_safe_change_intent:{intent}")
     return tuple(reasons)
 
 
@@ -96,14 +149,41 @@ def _selected(item: BrainItem, tier: str, reasons: set[str]) -> SelectedContextI
     return SelectedContextItem(item.id, item.revision, item.type, tier, item.content, tuple(sorted(reasons)))
 
 
-def _execution(resolutions: list[QuestionResolution]) -> ExecutionPolicy:
+def _explicit_prohibitions(task: str) -> tuple[str, ...]:
+    """Find imperative action prohibitions at sentence/line boundaries."""
+    prohibited: set[str] = set()
+    clauses = re.split(r"(?<=[.!?])\s+|[\r\n]+", task)
+    for clause in clauses:
+        normalized = clause.strip().lower()
+        match = re.match(r"^(?:please\s+)?(?:do\s+not|don't|must\s+not|never)\s+(.+)$", normalized)
+        if match is None:
+            continue
+        words = task_tokens(match.group(1))
+        for action, aliases in PROHIBITION_ACTIONS.items():
+            if words & set(aliases):
+                prohibited.add(action)
+    return tuple(action for action in SUPPORTED_ACTIONS if action in prohibited)
+
+
+def _execution(resolutions: list[QuestionResolution], task: str) -> ExecutionPolicy:
     missing = [resolution for resolution in resolutions if resolution.status == "missing"]
     safe = ("read_repository", "search_code", "inspect_git_history", "prepare_plan", "ask_questions")
     if any(resolution.severity == "critical" for resolution in missing):
-        return ExecutionPolicy("clarification_required", safe, ("modify_code", "commit", "deploy"))
-    if any(resolution.severity == "high" for resolution in missing):
-        return ExecutionPolicy("investigation_required", safe, ("commit", "deploy"))
-    return ExecutionPolicy("ready", safe + ("modify_code", "run_tests", "commit"), ())
+        status = "clarification_required"
+        allowed = safe
+        forbidden = {"modify_code", "commit", "push", "deploy"}
+    elif any(resolution.severity == "high" for resolution in missing):
+        status = "investigation_required"
+        allowed = safe
+        forbidden = {"commit", "push", "deploy"}
+    else:
+        status = "ready"
+        allowed = safe + ("modify_code", "run_tests", "commit", "push")
+        forbidden = set()
+    forbidden.update(_explicit_prohibitions(task))
+    allowed = tuple(action for action in allowed if action not in forbidden)
+    ordered_forbidden = tuple(action for action in SUPPORTED_ACTIONS if action in forbidden)
+    return ExecutionPolicy(status, allowed, ordered_forbidden)
 
 
 def build_context(
@@ -130,7 +210,7 @@ def build_context(
     required_item_ids: set[str] = set()
     for item in approved.values():
         if item.type == "playbook":
-            applicable = _applicable(item, classification.intent, domains)
+            applicable = _matched(item, classification.intent, domains, tokens)
             if applicable:
                 playbooks.append(item)
                 reasons.setdefault(str(item.id), set()).update(applicable)
@@ -145,7 +225,7 @@ def build_context(
     for item in approved.values():
         if item.type != "question":
             continue
-        applicable = _applicable(item, classification.intent, domains)
+        applicable = _matched(item, classification.intent, domains, tokens)
         if applicable or item.id in required_question_ids:
             questions.append(item)
             reasons.setdefault(str(item.id), set()).update(applicable)
@@ -248,7 +328,7 @@ def build_context(
         schema_version="0.1",
         request=request,
         classification=classification,
-        execution_policy=_execution(resolutions),
+        execution_policy=_execution(resolutions, request.task),
         question_resolutions=tuple(resolutions),
         critical_items=tier(critical_ids, "critical"),
         required_items=tier(required_ids, "required"),
