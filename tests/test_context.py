@@ -50,6 +50,8 @@ def test_repository_brain_is_valid_and_complete() -> None:
     [
         ("Change the core architecture", "architecture_change", "high"),
         ("Fix the broken parser", "bugfix", "medium"),
+        ("Reproduce and fix the checkout defect", "bugfix", "medium"),
+        ("Fix the defect while preserving the existing architecture and design", "bugfix", "medium"),
         ("Implement a CLI command", "feature", "medium"),
         ("Review the parser", "review", "low"),
     ],
@@ -63,6 +65,11 @@ def test_multiple_domains_and_deterministic_precedence() -> None:
     result = classify_task(RequestPackage("Review and implement architecture parser tests in Python CLI"))
     assert result.intent == "architecture_change"
     assert result.domains == ("architecture", "cli", "python", "testing", "validation")
+
+
+def test_architecture_change_without_defect_signal_remains_architecture_change() -> None:
+    result = classify_task(RequestPackage("Change the architecture contract and schema"))
+    assert (result.intent, result.risk) == ("architecture_change", "high")
 
 
 @pytest.mark.parametrize(
@@ -205,6 +212,91 @@ def test_execution_policy(tmp_path: Path, severity: str, with_answer: bool, stat
         items.append(block("knowledge.answer", "knowledge"))
     package = build_context(RequestPackage("Review this"), brain(tmp_path, *items))
     assert package.execution_policy.status == status
+
+
+def test_explicit_action_prohibitions_override_ready_permissions(tmp_path: Path) -> None:
+    package = build_context(
+        RequestPackage("Fix the widget defect. Do not commit or push changes."),
+        brain(tmp_path),
+    )
+    assert package.execution_policy.status == "ready"
+    assert "commit" not in package.execution_policy.allowed_actions
+    assert "push" not in package.execution_policy.allowed_actions
+    assert {"commit", "push"} <= set(package.execution_policy.forbidden_actions)
+
+
+def test_quoted_or_described_prohibition_is_not_treated_as_an_instruction(tmp_path: Path) -> None:
+    package = build_context(
+        RequestPackage('Review documentation that says "do not commit" to explain the policy.'),
+        brain(tmp_path),
+    )
+    assert "commit" in package.execution_policy.allowed_actions
+
+
+def test_project_owned_vocabulary_retrieval_is_relevant_bounded_and_stable(
+    tmp_path: Path,
+) -> None:
+    path = brain(
+        tmp_path,
+        block(
+            "contract.nebula-labels", "contract", severity="high",
+            tags=["nebula", "labels"], content="Nebula labels must follow the active dialect.",
+        ),
+        block(
+            "playbook.nebula-change", "playbook", tags=["nebula", "change"],
+            required_questions=["question.nebula-owner"],
+            content="Safely change nebula rendering and preserve existing behavior.",
+        ),
+        block(
+            "verification.nebula-rendering", "verification", tags=["nebula", "verification"],
+            content="Verify nebula rendering in each supported dialect.",
+        ),
+        block(
+            "knowledge.nebula-mechanism", "knowledge", tags=["nebula", "rendering"],
+            content="The nebula renderer owns dialect-aware labels.",
+        ),
+        block(
+            "question.nebula-owner", "question", severity="medium", tags=["nebula"],
+            answer_from=["knowledge.nebula-mechanism"], content="Which component owns nebula labels?",
+        ),
+        block(
+            "knowledge.unrelated-payments", "knowledge", tags=["payments"],
+            content="Payment settlement uses an unrelated external ledger.",
+        ),
+    )
+    request = RequestPackage(
+        "Reproduce and fix the nebula label defect. Preserve its rendering mechanism and run verification."
+    )
+    first = build_context(request, path, max_supporting_items=2)
+    second = build_context(request, path, max_supporting_items=2)
+    assert first.to_dict() == second.to_dict()
+    tiered = {
+        item.item_id
+        for tier in (
+            first.critical_items,
+            first.required_items,
+            first.supporting_items,
+            first.available_on_demand_items,
+        )
+        for item in tier
+    }
+    assert {
+        "contract.nebula-labels",
+        "playbook.nebula-change",
+        "verification.nebula-rendering",
+        "knowledge.nebula-mechanism",
+    } <= tiered
+    assert "knowledge.unrelated-payments" not in tiered
+    assert "question.nebula-owner" not in tiered
+    assert [item.question_id for item in first.question_resolutions] == ["question.nebula-owner"]
+    assert len(first.supporting_items) <= 2
+    for tier in (
+        first.critical_items,
+        first.required_items,
+        first.supporting_items,
+        first.available_on_demand_items,
+    ):
+        assert [item.item_id for item in tier] == sorted(item.item_id for item in tier)
 
 
 def test_invalid_routing_metadata_fails_cleanly(tmp_path: Path) -> None:
