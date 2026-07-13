@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block heading %}Project detected{% endblock %}{% block content %}
+<section class="card"><dl>{% for key in ['repository_path','remote_url','branch','head','clean','operating_system','python_version','engine_version'] %}<dt>{{ key|replace('_',' ')|title }}</dt><dd>{{ project[key] }}</dd>{% endfor %}</dl></section>
+<section class="card"><h2>Repository markers</h2><p>{{ project.marker_files|join(', ') or 'None' }}</p><h2>Likely stack</h2><p>{{ project.likely_stack|join(', ') or 'Unknown' }}</p><h2>Candidate commands</h2>{% for c in project.candidate_commands %}<p><code>{{ c.command }}</code> <span class="badge warning-badge">{{ c.status }}</span></p>{% else %}<p>None detected.</p>{% endfor %}</section>
+<div class="actions"><a class="button primary" href="/projects/{{ project.project_id }}/onboarding">Continue to Brain onboarding</a></div>{% endblock %}

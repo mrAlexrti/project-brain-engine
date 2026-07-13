@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block heading %}Connect a local Git project{% endblock %}{% block content %}
+<div class="steps"><span class="active">1 Project</span><span>2 Onboarding</span><span>3 Brain</span><span>4 Task</span><span>5 Experiment</span></div>
+{% if error %}<section class="error">{{ error }}</section>{% endif %}<form method="post"><label>Repository path<input name="path" required autocomplete="off"></label><p class="hint">Only stable Git metadata and known manifest files are inspected. Source files are not recursively scanned.</p><button class="primary" type="submit">Inspect project</button></form>{% endblock %}

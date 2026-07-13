@@ -1,17 +1,12 @@
 """Explicit keyword-based task classification."""
 
-import re
-
 from brain_engine.domain.context import RequestPackage, TaskClassification
+from brain_engine.multilingual.normalization import word_tokens
+from brain_engine.multilingual.signals import INTENT_SIGNALS
 
 # Explicit defect repair takes precedence over incidental architecture/design words.
 # Architecture changes otherwise precede features and reviews.
-INTENT_KEYWORDS: tuple[tuple[str, frozenset[str]], ...] = (
-    ("bugfix", frozenset({"fix", "bug", "defect", "error", "failure", "broken", "incorrect"})),
-    ("architecture_change", frozenset({"architecture", "architectural", "adr", "rfc", "design", "model", "schema", "contract", "decision"})),
-    ("feature", frozenset({"add", "create", "implement", "introduce", "support"})),
-    ("review", frozenset({"review", "inspect", "analyze", "check", "assess"})),
-)
+INTENT_KEYWORDS = INTENT_SIGNALS
 
 DOMAIN_KEYWORDS: dict[str, frozenset[str]] = {
     "architecture": frozenset({"architecture", "architectural", "adr", "rfc", "design", "model", "schema", "contract", "decision"}),
@@ -26,8 +21,8 @@ DOMAIN_KEYWORDS: dict[str, frozenset[str]] = {
 
 
 def task_tokens(text: str) -> frozenset[str]:
-    """Normalize task text into deterministic lowercase word tokens."""
-    return frozenset(re.findall(r"[a-z0-9]+", text.lower()))
+    """Normalize task text into deterministic Unicode word tokens."""
+    return word_tokens(text)
 
 
 def classify_task(request: RequestPackage) -> TaskClassification:

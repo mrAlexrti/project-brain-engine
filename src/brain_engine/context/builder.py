@@ -115,19 +115,13 @@ def _matched(
     tokens: frozenset[str],
 ) -> tuple[str, ...]:
     reasons = list(_applicable(item, intent, domains))
-    reasons.extend(
-        f"matched_domain:{domain}"
-        for domain in sorted(domains & set(_strings(item, "domains")))
-    )
-    reasons.extend(
-        f"matched_keyword:{word}"
-        for word in sorted(tokens & set(_strings(item, "keywords")))
-    )
     query_terms = tokens - RETRIEVAL_STOP_WORDS
     structured_fields = {
         "id": task_tokens(str(item.id).replace(".", " ").replace("-", "_")),
         "title": task_tokens(str(item.metadata.get("title", ""))),
         "tag": frozenset().union(*(task_tokens(value) for value in _strings(item, "tags"))),
+        "domain": frozenset().union(*(task_tokens(value) for value in _strings(item, "domains"))),
+        "keyword": frozenset().union(*(task_tokens(value) for value in _strings(item, "keywords"))),
         "source": frozenset().union(*(task_tokens(value) for value in _strings(item, "sources"))),
     }
     for field, values in structured_fields.items():

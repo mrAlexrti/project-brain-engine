@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Project Brain Engine{% endblock %}</title><link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}"></head>
+<body><aside><a class="brand" href="/">Project Brain</a><nav><a href="/">Home</a><a href="/projects/connect">Connect project</a></nav><div class="privacy">Local only. No uploads, telemetry, models, or agent execution.</div></aside>
+<main><header><h1>{% block heading %}Project Brain Engine{% endblock %}</h1><span class="badge">Local</span></header>{% block content %}{% endblock %}</main>
+<script>window.csrfToken={{ csrf_token|tojson }};document.querySelectorAll('form[method="post" i]').forEach((form)=>{if(!form.querySelector('input[name="csrf_token"]')){const input=document.createElement('input');input.type='hidden';input.name='csrf_token';input.value=window.csrfToken;form.appendChild(input);}});</script>
+<script src="{{ url_for('static', path='/app.js') }}"></script></body></html>

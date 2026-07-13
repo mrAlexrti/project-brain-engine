@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block content %}
+<section class="warning"><strong>Privacy notice.</strong> All data remains local and nothing is uploaded automatically. Raw evidence may contain private code and rules.</section>
+<div class="actions"><a class="button primary" href="/projects/connect">Connect project</a><a class="button" href="/create-experiment">Create experiment</a></div>
+<div class="grid"><section class="card"><h2>Recent projects</h2>{% for p in projects %}<p><a href="/projects/{{ p.project_id }}/onboarding"><strong>{{ p.repository_path }}</strong></a><br><small>{{ p.head }}</small></p>{% else %}<p>No connected projects.</p>{% endfor %}</section>
+<section class="card"><h2>Recent experiments</h2>{% for e in experiments %}<p><a href="/experiments/{{ e.parent.name }}">{{ e.parent.name }}</a></p>{% else %}<p>No experiments yet.</p>{% endfor %}</section></div>
+<footer>Project Brain Engine {{ version }}</footer>{% endblock %}

@@ -13,16 +13,23 @@ dependencies = [
     "rich>=14,<15",
     "PyYAML>=6,<7",
     "Jinja2>=3.1,<4",
+    "FastAPI>=0.115,<1.0",
+    "uvicorn>=0.34,<1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8,<9",
     "ruff>=0.12,<1.0",
+    "httpx>=0.28,<1.0",
 ]
 
 [project.scripts]
 brain = "brain_engine.cli:app"
+brain-app = "brain_engine.application.launcher:main"
+
+[tool.setuptools.package-data]
+brain_engine = ["application/templates/*.html", "application/templates/**/*.html", "application/static/*"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

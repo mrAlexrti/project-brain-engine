@@ -1,7 +1,7 @@
 # Project Brain Engine Roadmap
 
 **Status:** Draft  
-**Last updated:** 2026-07-12
+**Last updated:** 2026-07-13
 
 ## Phase 0 — Architecture and Research
 
@@ -93,3 +93,12 @@ brain.review_changes
 ## Product Rule
 
 Each phase must validate a real hypothesis before the next phase adds complexity.
+
+## Application-first vertical slice
+
+The Phase 1 implementation now includes a local server-rendered application (`brain app` and
+`brain-app`), stable repository inspection, proposed-only Brain initialization, deterministic
+Unicode matching, and controlled experiment worktree/evidence/evaluation/integrity services.
+
+Direct agent execution, automatic verification, native installers, hosted operation, semantic source
+scanning, embeddings, and automatic publication remain deliberately deferred.
