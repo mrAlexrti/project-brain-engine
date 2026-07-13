@@ -55,6 +55,10 @@ def capture_evidence(root: Path, workspace: Path, result_name: str, baseline: st
         "finished-at.txt": str(metadata.get("finished_at", "")) + "\n",
         "elapsed.txt": str(metadata.get("elapsed_seconds", 0)) + "\n",
         "permission-prompts.txt": str(metadata.get("permission_prompts", 0)) + "\n",
+        "setup-prompts.txt": str(metadata.get("setup_prompts", 0)) + "\n",
+        "task-permission-prompts.txt": str(
+            metadata.get("task_permission_prompts", metadata.get("permission_prompts", 0))
+        ) + "\n",
         "clarification-questions.txt": str(metadata.get("clarification_questions", 0)) + "\n",
         "corrective-iterations.txt": str(metadata.get("corrective_iterations", 0)) + "\n",
         "protocol-deviations.txt": str(metadata.get("protocol_deviations", "")) + "\n",

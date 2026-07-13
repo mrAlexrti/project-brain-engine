@@ -139,6 +139,34 @@ def test_finish_state_persists_across_service_instances_before_capture(tmp_path:
     assert (evidence / "agent-final-report.txt").read_text() == "persisted"
 
 
+def test_operator_paths_prompt_counters_and_concurrent_protocol_quality(tmp_path: Path) -> None:
+    root = create(tmp_path)
+    service = ExperimentService()
+    public, _ = service.status(root)
+    for name in ("result-1", "result-2"):
+        operator = public["operator"][name]
+        assert Path(operator["workspace_path"]).is_dir()
+        assert Path(operator["run_package_path"]).is_dir()
+        assert operator["workspace_path"] in operator["prepared_prompt"]
+        assert operator["run_package_path"] in operator["prepared_prompt"]
+        assert "context_result" not in operator["prepared_prompt"]
+    structural = public["comparison"].copy()
+    service.start_run(root, "result-1")
+    service.start_run(root, "result-2")
+    state = load_state(root)
+    assert state["comparison"] == structural
+    assert state["protocol_quality"]["classification"] == "deviated"
+    assert state["protocol_quality"]["duration_comparison_valid"] is False
+    assert "concurrent runs" in state["results"]["result-1"]["protocol_deviations"]
+    service.finish_run(root, "result-1", {
+        "final_report": "done", "setup_prompts": 2, "task_permission_prompts": 3,
+    })
+    stored = load_state(root)["results"]["result-1"]
+    assert stored["setup_prompts"] == 2
+    assert stored["task_permission_prompts"] == 3
+    assert stored["permission_prompts"] == 3
+
+
 @pytest.mark.parametrize("command", [
     ["git", "status"], ["python", "-c", "print('safe looking')"],
     ["python", "-m", "pip", "check"], ["ruff", "server"], ["npm", "run", "deploy"],

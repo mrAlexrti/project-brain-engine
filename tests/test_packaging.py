@@ -17,6 +17,7 @@ def test_installed_wheel_contains_and_serves_templates_and_static_assets(tmp_pat
         names = set(archive.namelist())
     assert "brain_engine/application/templates/base.html" in names
     assert "brain_engine/application/templates/projects/onboarding.html" in names
+    assert "brain_engine/application/templates/projects/analyze.html" in names
     assert "brain_engine/application/static/app.css" in names
     target = tmp_path / "installed"
     subprocess.run(

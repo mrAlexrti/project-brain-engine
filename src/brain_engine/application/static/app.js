@@ -1,1 +1,2 @@
 document.querySelectorAll('[data-confirm]').forEach((element)=>element.addEventListener('click',(event)=>{if(!window.confirm(element.dataset.confirm)){event.preventDefault();}}));
+document.querySelectorAll('[data-copy-target]').forEach((button)=>button.addEventListener('click',async()=>{const target=document.getElementById(button.dataset.copyTarget);if(!target){return;}await navigator.clipboard.writeText(target.value);button.textContent='Copied';}));

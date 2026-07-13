@@ -141,6 +141,11 @@ class ExperimentService:
                 "environment": environment_metadata,
                 "project_metadata": {"candidate_commands": inspected["candidate_commands"]},
                 "comparison": {"classification": comparison, "reportable_as_clean": not baseline_has_brain},
+                "protocol_quality": {
+                    "classification": "pilot" if baseline_has_brain else "compliant",
+                    "deviations": (["baseline includes pre-existing Brain"] if baseline_has_brain else []),
+                    "duration_comparison_valid": True,
+                },
                 "task": {"path": "TASK.md", "frozen": True, "sha256": task_hash},
                 "brain": {"workspace": "workspace-context/.brain", "validation_passed": True, "proposed_items": sum(i.status == "proposed" for i in validation.items), "approved_items": sum(i.status == "approved" for i in validation.items)},
                 "context_package": {"path": "evidence/context-package/context-package.yaml", "frozen": True, "sha256": package_hash, "revision": frozen_context_revision},
@@ -193,15 +198,59 @@ class ExperimentService:
         consistent &= all(
             passed for name, passed in checks.items() if name != "evidence_complete"
         )
-        public = {**state, "workspace_heads": heads, "workspace_clean": clean, "checks": checks, "consistent": consistent}
+        run_order = state.get("run_order", ["result-1", "result-2"])
+        packages = {
+            result_name: str((root.resolve() / f"run-package-{run_order.index(result_name) + 1}"))
+            for result_name in ("result-1", "result-2")
+        }
+        operator = {
+            result_name: {
+                "workspace_path": str((root.resolve() / state["workspaces"][result_name])),
+                "run_package_path": packages[result_name],
+                "prepared_prompt": self._prepared_prompt(
+                    root.resolve() / state["workspaces"][result_name], Path(packages[result_name]),
+                ),
+            }
+            for result_name in ("result-1", "result-2")
+        }
+        public = {
+            **state, "workspace_heads": heads, "workspace_clean": clean, "checks": checks,
+            "consistent": consistent, "operator": operator,
+        }
         public.pop("run_order", None)
         return public, consistent
+
+    @staticmethod
+    def _prepared_prompt(workspace: Path, package: Path) -> str:
+        return (
+            "Execute the neutral run package without inferring or discussing treatment assignment.\n\n"
+            f"Workspace: {workspace}\n"
+            f"Neutral run package: {package}\n\n"
+            "Read TASK.md and RUN_INSTRUCTIONS.md from that package, then perform the task only "
+            "in the designated workspace. Do not start work in the package directory."
+        )
 
     def start_run(self, root: Path, result_name: str) -> None:
         state = load_state(root)
         result = state["results"][result_name]
         if result["state"] != "ready":
             raise ExperimentError("Run is not ready to start.")
+        concurrent = [
+            name for name, other in state["results"].items()
+            if name != result_name and other["state"] == "running"
+        ]
+        if concurrent:
+            deviation = f"concurrent runs: {result_name} overlapped {concurrent[0]}"
+            quality = state["protocol_quality"]
+            quality["classification"] = "deviated"
+            quality["duration_comparison_valid"] = False
+            if deviation not in quality["deviations"]:
+                quality["deviations"].append(deviation)
+            for name in [result_name, *concurrent]:
+                existing = state["results"][name].get("protocol_deviations", "").strip()
+                state["results"][name]["protocol_deviations"] = "\n".join(
+                    value for value in (existing, deviation) if value
+                )
         result.update({"state": "running", "started_at": now()})
         save_state(root, state)
 
@@ -214,6 +263,20 @@ class ExperimentService:
         started = datetime.fromisoformat(result["started_at"])
         elapsed = (datetime.fromisoformat(finished) - started).total_seconds()
         result.update(metadata)
+        setup_prompts = metadata.get("setup_prompts", result.get("setup_prompts", 0))
+        task_prompts = metadata.get(
+            "task_permission_prompts", metadata.get("permission_prompts", 0),
+        )
+        result.update({
+            "setup_prompts": setup_prompts,
+            "task_permission_prompts": task_prompts,
+            "permission_prompts": task_prompts,
+        })
+        if str(result.get("protocol_deviations", "")).strip():
+            state["protocol_quality"]["classification"] = "deviated"
+            for line in str(result["protocol_deviations"]).splitlines():
+                if line.strip() and line.strip() not in state["protocol_quality"]["deviations"]:
+                    state["protocol_quality"]["deviations"].append(line.strip())
         result.update({"state": "finished", "finished_at": finished, "elapsed_seconds": elapsed})
         save_state(root, state)
 
@@ -263,6 +326,8 @@ class ExperimentService:
             heading, "",
             f"- Comparison classification: {state['comparison']['classification']}",
             f"- Reportable as clean A/B: {state['comparison']['reportable_as_clean']}",
+            f"- Protocol quality: {state['protocol_quality']['classification']}",
+            f"- Duration comparison valid: {state['protocol_quality']['duration_comparison_valid']}",
             f"- Treatment result after reveal: {mapping['context_result']}",
         ]
         for name in ("result-1", "result-2"):

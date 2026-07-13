@@ -16,6 +16,7 @@ from brain_engine.application.services.project_service import ProjectService
 from brain_engine.application.services.brain_service import BrainService
 from brain_engine.application.services.context_service import freeze_context, latest_context
 from brain_engine.context import build_context
+from brain_engine.discovery import DiscoveryService, ScanLimits
 from brain_engine.domain import RequestPackage
 from brain_engine.experiment import ExperimentError, ExperimentService
 from brain_engine.experiment.evaluation import RUBRIC, lock_evaluation, reveal_treatment
@@ -54,6 +55,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     )
     app.mount("/static", StaticFiles(directory=package / "static"), name="static")
     projects = ProjectService(data)
+    discoveries = DiscoveryService(data)
     app.state.data_dir = data
     app.state.csrf_token = csrf_token
 
@@ -92,19 +94,152 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     def project_brain(profile: dict) -> Path:
         return data / "brains" / profile["project_id"] / ".brain"
 
+    def discovery_prefill(profile: dict) -> dict[str, dict[str, object]]:
+        report = discoveries.latest(profile["project_id"])
+        if not report:
+            return {}
+        accepted = {
+            item["proposal_id"]: item for item in report["reviews"]
+            if item["action"] == "accept"
+        }
+        values: dict[str, dict[str, object]] = {}
+        fields = {
+            "Project Name": "project_name", "Project Purpose": "project_purpose",
+            "Language": "language", "Framework": "primary_technology",
+            "Package Manager": "primary_technology",
+        }
+        for proposal in report["proposals"]:
+            review = accepted.get(proposal["proposal_id"])
+            field = fields.get(proposal["title"])
+            if not review or not field or field in values:
+                continue
+            finding = next((
+                item for item in report["findings"]
+                if str(item["normalized_value"]) == proposal["content"]
+            ), None)
+            values[field] = {
+                "value": review["content"],
+                "confidence": finding["confidence"] if finding else "unknown",
+                "evidence": proposal["evidence_refs"],
+            }
+        if "primary_technology" not in values and "language" in values:
+            values["primary_technology"] = values["language"]
+        return values
+
     def onboarding_context(profile: dict, **extra) -> dict:
         brain = project_brain(profile)
         validation = validate_path(brain) if brain.exists() else None
         try:
-            frozen, _, _ = latest_context(data, profile["project_id"])
+            frozen, frozen_task, frozen_path = latest_context(data, profile["project_id"])
+            frozen_package = yaml.safe_load(frozen_path.read_text(encoding="utf-8"))
+            frozen_answers = frozen_package.get("request", {}).get("answers", {})
+            frozen_answer_text = "\n".join(
+                f"{key}={value}" for key, value in sorted(frozen_answers.items())
+            )
         except (OSError, ValueError, KeyError, IndexError):
             frozen = None
+            frozen_task = ""
+            frozen_answer_text = ""
         return {
             "project": profile, "brain_exists": brain.exists(),
             "validation": validation, "items": validation.items if validation else [],
-            "error": None, "message": None, "context": None, "task": "", "answers": "",
-            "preflight": None, "frozen": frozen, **extra,
+            "error": None, "message": None, "context": None,
+            "task": frozen_task, "answers": frozen_answer_text,
+            "preflight": None, "frozen": frozen,
+            "prefill": discovery_prefill(profile), **extra,
         }
+
+    def analyze_context(profile: dict, **extra) -> dict:
+        try:
+            latest = discoveries.latest(profile["project_id"])
+        except (OSError, ValueError, KeyError, StopIteration) as exc:
+            latest = None
+            extra.setdefault("error", str(exc))
+        current = inspect_repository(Path(profile["repository_path"]))
+        return {
+            "project": profile, "current_sha": current["head"],
+            "limits": ScanLimits().to_dict(), "discovery": latest,
+            "brain_exists": project_brain(profile).exists(), "error": None,
+            "message": None, **extra,
+        }
+
+    @app.get("/projects/{project_id}/analyze", response_class=HTMLResponse)
+    async def analyze_page(request: Request, project_id: str) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request, "projects/analyze.html", analyze_context(project(project_id)),
+        )
+
+    @app.post("/projects/{project_id}/analyze", response_class=HTMLResponse)
+    async def analyze_project(request: Request, project_id: str) -> HTMLResponse:
+        profile = project(project_id)
+        await _form(request)
+        try:
+            discoveries.scan(Path(profile["repository_path"]), project_id)
+            context = analyze_context(profile, message="A new immutable discovery revision was created.")
+        except (OSError, ValueError, RuntimeError) as exc:
+            context = analyze_context(profile, error=str(exc))
+            return templates.TemplateResponse(
+                request, "projects/analyze.html", context, status_code=400,
+            )
+        return templates.TemplateResponse(request, "projects/analyze.html", context)
+
+    @app.post("/projects/{project_id}/discoveries/{revision}/proposals/{proposal_id}/review")
+    async def review_proposal(
+        request: Request, project_id: str, revision: int, proposal_id: str,
+    ):
+        project(project_id)
+        values = await _form(request)
+        try:
+            discoveries.review(
+                project_id, revision, proposal_id, values.get("action", ""),
+                title=values.get("title"), content=values.get("content"),
+            )
+        except (OSError, ValueError, StopIteration) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return RedirectResponse(f"/projects/{project_id}/analyze", status_code=303)
+
+    @app.post("/projects/{project_id}/discoveries/{revision}/create-items")
+    async def create_discovery_items(request: Request, project_id: str, revision: int):
+        profile = project(project_id)
+        values = await _form(request)
+        try:
+            discoveries.create_reviewed_items(
+                project_id, revision, project_brain(profile),
+                confirmed=values.get("confirmed") == "yes",
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            return templates.TemplateResponse(
+                request, "projects/analyze.html", analyze_context(profile, error=str(exc)),
+                status_code=400,
+            )
+        return RedirectResponse(f"/projects/{project_id}/onboarding", status_code=303)
+
+    @app.post("/projects/{project_id}/discoveries/{revision}/questions/{question_id}/answer")
+    async def answer_discovery_question(
+        request: Request, project_id: str, revision: int, question_id: str,
+    ):
+        project(project_id)
+        values = await _form(request)
+        try:
+            discoveries.answer_question(project_id, revision, question_id, values.get("answer", ""))
+        except (OSError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return RedirectResponse(f"/projects/{project_id}/analyze", status_code=303)
+
+    @app.post("/projects/{project_id}/discoveries/{revision}/conflicts/{conflict_id}/review")
+    async def review_discovery_conflict(
+        request: Request, project_id: str, revision: int, conflict_id: str,
+    ):
+        project(project_id)
+        values = await _form(request)
+        try:
+            discoveries.review_conflict(
+                project_id, revision, conflict_id, values.get("action", ""),
+                values.get("selected_value", ""),
+            )
+        except (OSError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return RedirectResponse(f"/projects/{project_id}/analyze", status_code=303)
 
     @app.get("/projects/{project_id}/onboarding", response_class=HTMLResponse)
     async def onboarding(request: Request, project_id: str) -> HTMLResponse:
@@ -349,7 +484,17 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             if action == "start":
                 service.start_run(root, result_name)
             elif action == "finish":
-                service.finish_run(root, result_name, {"final_report": values.get("final_report", ""), "permission_prompts": int(values.get("permission_prompts", "0")), "clarification_questions": int(values.get("clarification_questions", "0")), "corrective_iterations": int(values.get("corrective_iterations", "0")), "protocol_deviations": values.get("protocol_deviations", ""), "operator_notes": values.get("operator_notes", "")})
+                service.finish_run(root, result_name, {
+                    "final_report": values.get("final_report", ""),
+                    "setup_prompts": int(values.get("setup_prompts", "0")),
+                    "task_permission_prompts": int(
+                        values.get("task_permission_prompts", values.get("permission_prompts", "0"))
+                    ),
+                    "clarification_questions": int(values.get("clarification_questions", "0")),
+                    "corrective_iterations": int(values.get("corrective_iterations", "0")),
+                    "protocol_deviations": values.get("protocol_deviations", ""),
+                    "operator_notes": values.get("operator_notes", ""),
+                })
             elif action == "capture":
                 service.capture(root, result_name)
             else:

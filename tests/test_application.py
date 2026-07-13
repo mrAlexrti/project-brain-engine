@@ -112,6 +112,9 @@ def test_complete_application_first_onboarding(tmp_path: Path, monkeypatch) -> N
         "task": "Review the demo", "answers": "question.owner=Project owner",
     })
     assert frozen.status_code == 200
+    restored = client.get(f"/projects/{project_id}/onboarding")
+    assert "Review the demo" in restored.text
+    assert "question.owner=Project owner" in restored.text
     index_path = tmp_path / "data/context-packages" / project_id / "index.yaml"
     index = yaml.safe_load(index_path.read_text(encoding="utf-8"))
     snapshot = index["revisions"][0]

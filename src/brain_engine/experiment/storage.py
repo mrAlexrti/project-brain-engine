@@ -10,7 +10,16 @@ STATE_FILE = "experiment.yaml"
 
 
 def load_state(root: Path) -> dict[str, Any]:
-    return read_yaml(root.resolve() / STATE_FILE)
+    state = read_yaml(root.resolve() / STATE_FILE)
+    state.setdefault("protocol_quality", {
+        "classification": "pilot", "deviations": ["legacy record without protocol-quality data"],
+        "duration_comparison_valid": True,
+    })
+    for result in state.get("results", {}).values():
+        legacy = result.get("permission_prompts", 0)
+        result.setdefault("setup_prompts", 0)
+        result.setdefault("task_permission_prompts", legacy)
+    return state
 
 
 def save_state(root: Path, state: dict[str, Any]) -> None:

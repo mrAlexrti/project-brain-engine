@@ -5,6 +5,7 @@
 - [Brain Manifesto](BRAIN_MANIFESTO.md)
 - [Architecture](ARCHITECTURE.md)
 - [Roadmap](ROADMAP.md)
+- [Deterministic Project Discovery](DISCOVERY.md)
 
 ## Accepted Architecture Decisions
 

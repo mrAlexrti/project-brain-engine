@@ -12,6 +12,7 @@ from rich.table import Table
 
 from brain_engine.context import BrainContentError, ContextBuildError, build_context
 from brain_engine.domain import ContextPackage, RequestPackage
+from brain_engine.discovery import DiscoveryService
 from brain_engine.validation import ValidationOperationalError, validate_path
 from brain_engine import __version__
 from brain_engine.application.launcher import run_app
@@ -22,6 +23,34 @@ app = typer.Typer(name="brain", help="Question-driven context engine for AI-assi
 experiment_app = typer.Typer(name="experiment", help="Controlled local A/B experiments.", no_args_is_help=True)
 app.add_typer(experiment_app, name="experiment")
 console = Console()
+
+
+@app.command("scan")
+def scan_command(
+    repository: Annotated[Path, typer.Argument(help="Local Git repository to analyze.")],
+    data_dir: Annotated[
+        Path | None, typer.Option("--data-dir", help="Application-managed data directory.")
+    ] = None,
+) -> None:
+    """Create an immutable, deterministic project discovery revision."""
+    target = (data_dir or Path.home() / ".project-brain-engine").resolve()
+    try:
+        report = DiscoveryService(target).scan(repository)
+    except (OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[bold red]Discovery error:[/bold red] {exc}")
+        raise typer.Exit(1) from None
+    metadata = report["metadata"]
+    console.print(f"Project ID: {metadata['project_id']}")
+    console.print(f"Repository SHA: {metadata['repository_sha']}")
+    console.print(f"Revision: {metadata['revision']}")
+    console.print(
+        "Counts: "
+        f"findings={len(report['findings'])}, proposals={len(report['proposals'])}, "
+        f"questions={len(report['questions'])}, conflicts={len(report['conflicts'])}"
+    )
+    console.print(f"Report: {report['report_path']}")
+    for warning in report["warnings"]:
+        console.print(f"[yellow]Partial scan:[/yellow] {warning}")
 
 
 @app.command()
@@ -121,10 +150,23 @@ def experiment_finish(
     root: Annotated[Path, typer.Argument()], result: Annotated[str, typer.Option("--result")],
     final_report: Annotated[Path, typer.Option("--final-report")],
     permission_prompts: Annotated[int, typer.Option("--permission-prompts")] = 0,
+    setup_prompts: Annotated[int, typer.Option("--setup-prompts")] = 0,
+    task_permission_prompts: Annotated[
+        int | None, typer.Option("--task-permission-prompts")
+    ] = None,
     clarification_questions: Annotated[int, typer.Option("--clarification-questions")] = 0,
     corrective_iterations: Annotated[int, typer.Option("--corrective-iterations")] = 0,
 ) -> None:
-    metadata = {"final_report": final_report.read_text(encoding="utf-8"), "permission_prompts": permission_prompts, "clarification_questions": clarification_questions, "corrective_iterations": corrective_iterations}
+    metadata = {
+        "final_report": final_report.read_text(encoding="utf-8"),
+        "permission_prompts": permission_prompts,
+        "setup_prompts": setup_prompts,
+        "task_permission_prompts": (
+            permission_prompts if task_permission_prompts is None else task_permission_prompts
+        ),
+        "clarification_questions": clarification_questions,
+        "corrective_iterations": corrective_iterations,
+    }
     ExperimentService().finish_run(root, result, metadata)
     console.print(f"Finished {result}")
 
